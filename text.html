@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Digital Guestbook with Video</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: auto; padding: 1rem; }
+    input, textarea, button { width: 100%; margin: .5rem 0; padding: .5rem; }
+    video { width: 100%; margin: .5rem 0; background: #000; }
+    .entry { border-top: 1px solid #ccc; padding-top: .5rem; margin-top: .5rem; }
+    .entry video { width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>Digital Guestbook</h1>
+  <label>
+    Your Name:
+    <input type="text" id="name" placeholder="Enter your name" />
+  </label>
+  <label>
+    Message:
+    <textarea id="message" placeholder="Write your message"></textarea>
+  </label>
+
+  <video id="preview" autoplay muted playsinline></video>
+  <button id="startBtn">Start Recording</button>
+  <button id="stopBtn" disabled>Stop Recording</button>
+
+  <h2>Entries</h2>
+  <div id="entries"></div>
+
+  <script>
+    let mediaRecorder, recordedChunks = [];
+
+    const preview = document.getElementById('preview');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn  = document.getElementById('stopBtn');
+    const entries  = document.getElementById('entries');
+
+    // Ask for camera & mic
+    async function initCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        preview.srcObject = stream;
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp8,opus' });
+        mediaRecorder.ondataavailable = e => {
+          if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+        };
+        mediaRecorder.onstop = saveEntry;
+      } catch (err) {
+        alert('Error accessing camera/mic: ' + err.message);
+      }
+    }
+
+    startBtn.addEventListener('click', () => {
+      recordedChunks = [];
+      mediaRecorder.start();
+      startBtn.disabled = true;
+      stopBtn.disabled  = false;
+    });
+
+    stopBtn.addEventListener('click', () => {
+      mediaRecorder.stop();
+      startBtn.disabled = false;
+      stopBtn.disabled  = true;
+    });
+
+    // When recording stops, build the guestbook entry
+    async function saveEntry() {
+      const name    = document.getElementById('name').value.trim()    || 'Anonymous';
+      const message = document.getElementById('message').value.trim() || '';
+      const blob    = new Blob(recordedChunks, { type: 'video/webm' });
+      const url     = URL.createObjectURL(blob);
+
+      // Create entry container
+      const div = document.createElement('div');
+      div.className = 'entry';
+      div.innerHTML = `
+        <strong>${name}</strong><p>${message}</p>
+        <video controls src="${url}"></video>
+        <button class="downloadBtn">Save Video</button>
+      `;
+      entries.prepend(div);
+
+      // Attach download logic
+      div.querySelector('.downloadBtn').addEventListener('click', async () => {
+        // Try File System Access API first (Chrome on Android)
+        if (window.showSaveFilePicker) {
+          try {
+            const handle = await window.showSaveFilePicker({
+              suggestedName: `${name.replace(/\s+/g,'_')}_${Date.now()}.webm`,
+              types: [{ description: 'WebM Video', accept: { 'video/webm': ['.webm'] } }]
+            });
+            const writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            return;
+          } catch (e) {
+            console.warn('SaveFilePicker failed, falling back to download link', e);
+          }
+        }
+        // Fallback: download via hidden link
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${name.replace(/\s+/g,'_')}_${Date.now()}.webm`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      });
+
+      // Clear form
+      document.getElementById('message').value = '';
+    }
+
+    // Initialize on load
+    initCamera();
+  </script>
+</body>
+</html>
